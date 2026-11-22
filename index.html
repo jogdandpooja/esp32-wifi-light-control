@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Light</title>
+<style>
+  body { font-family: Arial; text-align: center; margin-top: 40px; }
+  h1 { font-size: 28px; }
+  .status { font-size: 32px; font-weight: bold; color: #c0392b; }
+  .btn { display: inline-block; width: 140px; padding: 22px 0; margin: 15px;
+         font-size: 26px; color: white; text-decoration: none; border-radius: 12px; }
+  .on { background: #2e9e44; }
+  .off { background: #c0392b; }
+  .voice { margin-top: 25px; }
+  #mic { font-size: 22px; padding: 16px 28px; border: none; border-radius: 12px;
+         background: #2c6fbb; color: white; }
+  #mic.listening { background: #e67e22; }
+  select { font-size: 18px; padding: 8px; margin-left: 8px; }
+  #heard { font-size: 18px; color: #555; min-height: 24px; }
+</style>
+</head>
+<body>
+  <h1>ESP32 Light Control</h1>
+  <p>Light is <span id="status" class="status">%STATUS%</span></p>
+  <a class="btn on" href="/on" onclick="return setLight(true)">ON</a>
+  <a class="btn off" href="/off" onclick="return setLight(false)">OFF</a>
+
+  <div class="voice">
+    <button id="mic" onclick="toggleMic()">Start voice</button>
+    <select id="lang">
+      <option value="en-IN">English</option>
+      <option value="hi-IN">Hindi</option>
+      <option value="mr-IN">Marathi</option>
+    </select>
+    <p id="heard">Say "on" or "off"</p>
+  </div>
+
+<script>
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null;
+  var listening = false;
+
+  var ON_WORDS  = ['on', 'chalu', 'suru', 'start', 'चालू', 'चालु', 'सुरू', 'शुरू', 'ऑन'];
+  var OFF_WORDS = ['off', 'band', 'stop', 'बंद', 'बन्द', 'बंध', 'ऑफ', 'ऑफ़'];
+
+  function setUI(on) {
+    var s = document.getElementById('status');
+    s.textContent = on ? 'ON' : 'OFF';
+    s.style.color = on ? '#2e9e44' : '#c0392b';
+  }
+
+  function setLight(on) {
+    fetch(on ? '/on' : '/off')
+      .then(function () { setUI(on); })
+      .catch(function () {
+        document.getElementById('heard').textContent = 'Could not reach the ESP32';
+      });
+    return false; // stop the link from reloading the page
+  }
+
+  function hasAny(words, list) {
+    for (var i = 0; i < words.length; i++) {
+      if (list.indexOf(words[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  function handleSpeech(text) {
+    var words = text.toLowerCase().replace(/[.,!?।]/g, '').split(/\s+/);
+    document.getElementById('heard').textContent = 'Heard: ' + text;
+    if (hasAny(words, OFF_WORDS)) {
+      setLight(false);
+    } else if (hasAny(words, ON_WORDS)) {
+      setLight(true);
+    }
+  }
+
+  function toggleMic() {
+    var btn = document.getElementById('mic');
+    var heard = document.getElementById('heard');
+
+    if (!SR) {
+      heard.textContent = 'Voice is not supported here. Use Chrome on Android.';
+      return;
+    }
+    if (listening) {
+      listening = false;
+      rec.stop();
+      btn.textContent = 'Start voice';
+      btn.className = '';
+      return;
+    }
+
+    rec = new SR();
+    rec.lang = document.getElementById('lang').value;
+    rec.continuous = true;
+    rec.interimResults = false;
+
+    rec.onresult = function (e) {
+      var last = e.results[e.results.length - 1];
+      handleSpeech(last[0].transcript);
+    };
+    rec.onerror = function (e) {
+      heard.textContent = 'Voice error: ' + e.error;
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        listening = false;
+        btn.textContent = 'Start voice';
+        btn.className = '';
+      }
+    };
+    rec.onend = function () {
+      // Chrome stops after silence, so restart while voice is switched on
+      if (listening) { try { rec.start(); } catch (err) {} }
+    };
+
+    listening = true;
+    rec.start();
+    btn.textContent = 'Listening... (tap to stop)';
+    btn.className = 'listening';
+    heard.textContent = 'Say "on" or "off"';
+  }
+  // Set the status color from the text the ESP32 filled in
+  setUI(document.getElementById('status').textContent.trim() === 'ON');
+</script>
+</body>
+</html>
